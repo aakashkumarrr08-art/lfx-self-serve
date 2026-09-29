@@ -14,6 +14,7 @@ import type {
   HealthMetricsEventsSectionKey,
   HealthMetricsEventsSpeakers,
   HealthMetricsEventsSpeakersTabOption,
+  HealthMetricsEventsSponsorship,
 } from '../interfaces/health-metrics-events.interface';
 import type { HealthMetricsL2Range } from '../interfaces/health-metrics-l2.interface';
 
@@ -74,6 +75,7 @@ export const HEALTH_METRICS_EVENTS_SECTIONS = [
     description: 'What companies paid to sponsor events, and what they bought.',
     footnote: '',
     footnoteCaution: false,
+    headingBadge: 'Provisional',
   },
   {
     key: 'spk',
@@ -113,6 +115,7 @@ export const HEALTH_METRICS_EVENTS_DATA_SECTIONS = [
   'past',
   'reg',
   'rev',
+  'spon',
   'spk',
   'orgs',
 ] as const satisfies readonly HealthMetricsEventsSectionKey[];
@@ -297,3 +300,15 @@ export const HEALTH_METRICS_EVENTS_ORGANIZATIONS_MEMBERSHIP = {
 
 /** Fill for the registrations mini bar. */
 export const HEALTH_METRICS_EVENTS_ORGANIZATIONS_BAR_CLASS = 'bg-blue-500';
+
+/** Read-failed / no-foundation value: no periods, which the section must not caption as measured. */
+export const HEALTH_METRICS_EVENTS_SPONSORSHIP_UNMEASURED: HealthMetricsEventsSponsorship = { periods: [] };
+
+/** Periods the sponsorship view models progress to goal for; the older years carry none. */
+export const HEALTH_METRICS_EVENTS_SPONSORSHIP_PROGRESS_RANGES: readonly HealthMetricsL2Range[] = ['YTD', 'COMPLETED_YEAR'];
+
+/** Stands in for a goal that is not set, so it never reads as a goal of zero. */
+export const HEALTH_METRICS_EVENTS_SPONSORSHIP_GOAL_NOT_SET = 'not set';
+
+/** Fill for the tier bars and the progress-to-goal bar. */
+export const HEALTH_METRICS_EVENTS_SPONSORSHIP_BAR_CLASS = 'bg-blue-600';

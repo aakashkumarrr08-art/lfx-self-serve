@@ -21,6 +21,8 @@ import {
   HEALTH_METRICS_EVENTS_SPEAKERS_STATUS_GROUPS,
   HEALTH_METRICS_EVENTS_SPEAKERS_TOP_ORGANIZATIONS,
   HEALTH_METRICS_EVENTS_SPEAKERS_UNGROUPED_BADGE_CLASS,
+  HEALTH_METRICS_EVENTS_SPONSORSHIP_BAR_CLASS,
+  HEALTH_METRICS_EVENTS_SPONSORSHIP_GOAL_NOT_SET,
 } from '../constants/health-metrics-events.constants';
 import { HEALTH_METRICS_L2_RANGES } from '../constants/health-metrics-l2.constants';
 import { formatIsoDateLabel } from './date-time.utils';
@@ -63,6 +65,9 @@ import type {
   HealthMetricsEventsSpeakersTab,
   HealthMetricsEventsSpeakersView,
   HealthMetricsEventsSpeakersYearView,
+  HealthMetricsEventsSponsorship,
+  HealthMetricsEventsSponsorshipProgressView,
+  HealthMetricsEventsSponsorshipView,
   HealthMetricsEventsSubNavItem,
 } from '../interfaces/health-metrics-events.interface';
 import type { HealthMetricsRange } from '../interfaces/dashboard-metric.interface';
@@ -475,6 +480,47 @@ export function buildHealthMetricsEventsSpeakersNote(speakers: HealthMetricsEven
   return `down ${Math.round(Math.abs(change) * 100)}% YoY`;
 }
 
+/** One period's sponsorship section. Progress shows only against a goal that is set, so no goal never reads as a full bar. */
+export function buildHealthMetricsEventsSponsorshipView(
+  sponsorship: HealthMetricsEventsSponsorship,
+  range: HealthMetricsRange
+): HealthMetricsEventsSponsorshipView {
+  const period = sponsorship.periods.find((candidate) => candidate.range === range) ?? null;
+  const changes = period?.changes ?? null;
+  const stat = (key: string, label: string, value: string, change?: HealthMetricsEventsAtAGlanceDelta): HealthMetricsEventsAtAGlanceStatView => ({
+    key,
+    label,
+    value,
+    ...(change ?? { delta: null, deltaDirection: 'neutral' }),
+    warn: false,
+  });
+  const tierPackages = period?.tierPackages ?? null;
+  const addOns = period?.addOns ?? null;
+  const packages = tierPackages === null || addOns === null ? null : tierPackages + addOns;
+
+  return {
+    foundationMeasured: sponsorship.periods.length > 0,
+    measured: period !== null && period.revenueUsd !== null,
+    packagesLabel: formatSponsorshipPackagesLabel(packages),
+    headline: stat(
+      'revenue',
+      'Sponsorship revenue',
+      formatHealthMetricsEventsRevenue(period?.revenueUsd ?? null),
+      changes ? formatAtAGlanceDelta(changes.revenue, 'pct') : undefined
+    ),
+    side: [
+      stat('goal', 'Goal', period?.goalUsd ? formatCurrency(period.goalUsd) : HEALTH_METRICS_EVENTS_SPONSORSHIP_GOAL_NOT_SET),
+      stat('tier-packages', 'Tier packages', formatAtAGlanceCount(tierPackages)),
+      stat('add-ons', 'Add-ons', formatAtAGlanceCount(addOns)),
+    ],
+    goalSet: !!period?.goalUsd,
+    progress: period?.goalUsd ? resolveSponsorshipProgress(period.progressToGoal) : null,
+    tiers: buildSpeakersBars(
+      (period?.tiers ?? []).map((tier) => ({ key: tier.name, label: tier.name, value: tier.packages, barClass: HEALTH_METRICS_EVENTS_SPONSORSHIP_BAR_CLASS }))
+    ),
+  };
+}
+
 function formatAtAGlanceCount(value: number | null | undefined): string {
   return value === null || value === undefined ? HEALTH_METRICS_EVENTS_NOT_AVAILABLE : value.toLocaleString('en-US');
 }
@@ -603,6 +649,13 @@ function buildRegistrationsGrowthRowView(
   };
 }
 
+/** Empty when unmeasured, since the section then renders no pill. */
+function formatSponsorshipPackagesLabel(value: number | null): string {
+  if (value === null) return '';
+
+  return `${value.toLocaleString('en-US')} ${value === 1 ? 'package' : 'packages'} sold`;
+}
+
 /** Empty when unmeasured, since the section then renders no figures at all. */
 function formatProposalCount(value: number | null): string {
   if (value === null) return '';
@@ -625,6 +678,14 @@ function buildSpeakersBars(items: HealthMetricsEventsSpeakersBarInput[]): Health
     widthPct: max > 0 && item.value !== null ? (item.value / max) * 100 : 0,
     barClass: item.barClass,
   }));
+}
+
+/** `null` without a modelled progress; the width stops at full while the label keeps the real percent. */
+function resolveSponsorshipProgress(progress: number | null): HealthMetricsEventsSponsorshipProgressView | null {
+  if (progress === null) return null;
+
+  const pct = Math.round(progress * 100);
+  return { pctLabel: `${pct}%`, widthPct: Math.min(Math.max(pct, 0), 100) };
 }
 
 /** Most recent first; the proposal key breaks ties so the order is stable. */
