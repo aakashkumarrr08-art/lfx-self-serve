@@ -33,8 +33,11 @@ export const INSIGHTS_TOKEN_INELIGIBLE: InsightsTokenEligibility = { canCreate: 
 /** Fail-closed eligibility when the Key Contact check itself could not complete (upstream error). */
 export const INSIGHTS_TOKEN_ELIGIBILITY_UNAVAILABLE: InsightsTokenEligibility = { canCreate: false, orgs: [], checkFailed: true };
 
-/** LFX Insights public API documentation, linked from the token group and reveal dialog. */
-export const INSIGHTS_PUBLIC_API_DOCS_URL = 'https://docs.linuxfoundation.org/lfx/insights';
+/**
+ * LFX Insights documentation, linked from the token group and reveal dialog.
+ * TODO: Temporary link, not the final API docs. Replace it with the public API reference once it is published.
+ */
+export const INSIGHTS_PUBLIC_API_DOCS_URL = 'https://insights.linuxfoundation.org/docs/introduction/what-is-insights/';
 
 /** How long the reveal dialog shows "Copied" before reverting to "Copy". */
 export const INSIGHTS_TOKEN_COPIED_RESET_MS = 2000;
