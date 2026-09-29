@@ -5,7 +5,12 @@ import { lfxColors } from './colors.constants';
 
 import type { HealthMetricsL2CrossReference } from '../interfaces/health-metrics-l2.interface';
 import type {
-  HealthMetricsMembersSectionKey,
+  HealthMetricsMembersBridge,
+  HealthMetricsMembersBridgeStepType,
+  HealthMetricsMembersDataSectionKey,
+  HealthMetricsMembersMovementDrawerCopy,
+  HealthMetricsMembersMovementListType,
+  HealthMetricsMembersMovements,
   HealthMetricsMembersTiers,
   HealthMetricsMembersTiersModeOption,
 } from '../interfaces/health-metrics-members.interface';
@@ -81,8 +86,8 @@ export const HEALTH_METRICS_MEMBERS_SECTIONS = [
 /** Prefix for a section's DOM id; the fragment is the bare section key. */
 export const HEALTH_METRICS_MEMBERS_SECTION_ID_PREFIX = 'sec-mem-';
 
-/** Sections whose body reads data, so a deep link waits for them. Each section's issue adds its key. */
-export const HEALTH_METRICS_MEMBERS_DATA_SECTIONS = ['tiers'] as const satisfies readonly HealthMetricsMembersSectionKey[];
+/** Reads a deep link waits for: each section's issue adds its key; `bridge` is the second read in `#tiers`. */
+export const HEALTH_METRICS_MEMBERS_DATA_SECTIONS = ['tiers', 'bridge'] as const satisfies readonly HealthMetricsMembersDataSectionKey[];
 
 /** Note under the sub-nav items, linking to Engagement's group attendance. */
 export const HEALTH_METRICS_MEMBERS_SUB_NAV_CROSS_REFERENCE: HealthMetricsL2CrossReference = {
@@ -121,3 +126,62 @@ export const HEALTH_METRICS_MEMBERS_TIERS_COLORS: readonly string[] = [
   lfxColors.emerald[300],
   lfxColors.amber[500],
 ];
+
+/** Read-failed / no-foundation value: no steps, so the bridge renders no bars. */
+export const HEALTH_METRICS_MEMBERS_BRIDGE_UNMEASURED: HealthMetricsMembersBridge = { steps: [] };
+
+/** Upper bound on bridge rows read: six per year, so a century of years. */
+export const HEALTH_METRICS_MEMBERS_BRIDGE_ROW_CAP = 600;
+
+/** Every `MEMBERSHIP_WATERFALL` step in bar order, and the allowlist the bridge read keeps rows against. */
+export const HEALTH_METRICS_MEMBERS_BRIDGE_STEP_TYPES = ['start_of_year', 'new', 'upgrade', 'downgrade', 'churned', 'today'] as const;
+
+/** The movements a bar opens as a named list, and the allowlist the movements read validates against. */
+export const HEALTH_METRICS_MEMBERS_MOVEMENT_LIST_TYPES = ['new', 'upgrade', 'downgrade'] as const;
+
+/** Read-failed value for a movement list. */
+export const HEALTH_METRICS_MEMBERS_MOVEMENTS_UNMEASURED: HealthMetricsMembersMovements = { rows: [], totalRecords: 0 };
+
+/** Rows per page of a movement list; the longest list today runs to several hundred. */
+export const HEALTH_METRICS_MEMBERS_MOVEMENTS_PAGE_SIZE = 25;
+
+/** Largest page a caller may ask for. */
+export const HEALTH_METRICS_MEMBERS_MOVEMENTS_MAX_PAGE_SIZE = 100;
+
+/** Bar labels in the design's order; the closing total's label depends on the year, so it is built. */
+export const HEALTH_METRICS_MEMBERS_BRIDGE_STEP_LABELS: Record<Exclude<HealthMetricsMembersBridgeStepType, 'today'>, string> = {
+  start_of_year: 'Start of year',
+  new: 'New',
+  upgrade: 'Upgrades',
+  downgrade: 'Downgrades',
+  churned: 'Churned',
+};
+
+/** Under the bridge: why it stands in for a total-members line. */
+export const HEALTH_METRICS_MEMBERS_BRIDGE_FOOTER =
+  "The bridge replaces PCC's total-members all-time line: it says why the number moved — adds, upgrades, downgrades and churn — rather than only that it did.";
+
+/** Each movement drawer's copy, from the design's named lists. The from-tier is not in the data yet. */
+export const HEALTH_METRICS_MEMBERS_MOVEMENT_DRAWER_COPY: Record<HealthMetricsMembersMovementListType, HealthMetricsMembersMovementDrawerCopy> = {
+  new: {
+    title: 'Joined this year',
+    pastTitle: 'Joined in',
+    subtitle: 'New memberships, largest dues first',
+    note: "The dues column is annual. A new member's first 90 days predict whether they renew — worth checking that each one has attended something.",
+    verb: 'joined',
+  },
+  upgrade: {
+    title: 'Moved up a tier',
+    pastTitle: 'Moved up a tier in',
+    subtitle: 'Existing members who increased their commitment',
+    note: 'Upgrades are the strongest signal a member is getting value. Worth understanding what changed for them — it is repeatable.',
+    verb: 'moved up',
+  },
+  downgrade: {
+    title: 'Moved down a tier',
+    pastTitle: 'Moved down a tier in',
+    subtitle: 'Reduced commitment — often a precursor to churn',
+    note: 'A downgrade keeps the logo but loses the revenue, so logo churn misses it entirely. These accounts are the highest-value save opportunities.',
+    verb: 'moved down',
+  },
+};
