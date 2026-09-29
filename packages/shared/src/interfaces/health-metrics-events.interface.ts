@@ -638,7 +638,7 @@ export interface HealthMetricsEventsSponsorshipView {
   foundationMeasured: boolean;
   /** `false` when the read carried no figures for the period, so nothing reads as a measured zero. */
   measured: boolean;
-  /** e.g. `42 packages sold`; empty when unmeasured. */
+  /** Tier packages only, e.g. `30 packages sold`; add-ons are counted separately. Empty when unmeasured. */
   packagesLabel: string;
   headline: HealthMetricsEventsAtAGlanceStatView;
   side: HealthMetricsEventsAtAGlanceStatView[];
@@ -647,4 +647,49 @@ export interface HealthMetricsEventsSponsorshipView {
   /** `null` without a goal or a modelled progress, so a missing goal never renders as a full bar. */
   progress: HealthMetricsEventsSponsorshipProgressView | null;
   tiers: HealthMetricsEventsSpeakersBarView[];
+}
+
+/** Foundation scope for geography; every period ships in one read, so the range stays client-side. */
+export interface HealthMetricsEventsGeographyQuery {
+  foundationSlug: string;
+}
+
+/** Registrations from one country in a period. */
+export interface HealthMetricsEventsGeographyCountry {
+  country: string;
+  registrations: number;
+}
+
+/** One period's geographic distribution for the whole foundation. Every `null` is not available, never zero. */
+export interface HealthMetricsEventsGeographyPeriod {
+  range: HealthMetricsL2Range;
+  /** Countries represented, from the at-a-glance rollup. */
+  countries: number | null;
+  /** Year-over-year change in countries as a fraction; `null` for a period the rollup does not compare. */
+  changes: { countries: number | null } | null;
+  /** The countries with the most registrations in the period, most first. */
+  topCountries: HealthMetricsEventsGeographyCountry[];
+  /** Countries with a registration in the period, so the section can say how many the top list leaves out. */
+  rankedCountries: number;
+}
+
+/** `GET /api/analytics/events-geography` — each period's countries represented and top countries by registrations. */
+export interface HealthMetricsEventsGeography {
+  periods: HealthMetricsEventsGeographyPeriod[];
+}
+
+/** The section for one period, with every label ready to render. */
+export interface HealthMetricsEventsGeographyView {
+  /** `false` when the read carried no period at all. */
+  foundationMeasured: boolean;
+  /** `false` when no country has a registration in the period, so nothing reads as a measured zero. */
+  measured: boolean;
+  /** Countries represented, for the sub-nav badge; `null` when unmeasured. */
+  countries: number | null;
+  /** e.g. `42 countries`; empty when unmeasured. */
+  countriesLabel: string;
+  headline: HealthMetricsEventsAtAGlanceStatView;
+  bars: HealthMetricsEventsSpeakersBarView[];
+  /** e.g. `+37 more`; empty when the bars show every country. */
+  moreLabel: string;
 }

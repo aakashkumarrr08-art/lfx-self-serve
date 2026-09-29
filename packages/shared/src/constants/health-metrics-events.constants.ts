@@ -5,6 +5,7 @@ import type {
   HealthMetricsEventsAtAGlance,
   HealthMetricsEventsForecast,
   HealthMetricsEventsForecastCurve,
+  HealthMetricsEventsGeography,
   HealthMetricsEventsOrganizations,
   HealthMetricsEventsOrganizationsSegmentOption,
   HealthMetricsEventsPast,
@@ -118,6 +119,7 @@ export const HEALTH_METRICS_EVENTS_DATA_SECTIONS = [
   'spon',
   'spk',
   'orgs',
+  'geo',
 ] as const satisfies readonly HealthMetricsEventsSectionKey[];
 
 /** Static note under the sub-nav items; stays plain text until the Members tab exists to link to. */
@@ -312,3 +314,12 @@ export const HEALTH_METRICS_EVENTS_SPONSORSHIP_GOAL_NOT_SET = 'not set';
 
 /** Fill for the tier bars and the progress-to-goal bar. */
 export const HEALTH_METRICS_EVENTS_SPONSORSHIP_BAR_CLASS = 'bg-blue-600';
+
+/** Read-failed / no-foundation value: no periods, which the section must not caption as measured. */
+export const HEALTH_METRICS_EVENTS_GEOGRAPHY_UNMEASURED: HealthMetricsEventsGeography = { periods: [] };
+
+/** Countries ranked in the bars; the rest collapse into a `+N more` line. */
+export const HEALTH_METRICS_EVENTS_GEOGRAPHY_TOP_COUNTRIES = 5;
+
+/** Fill for the country bars. */
+export const HEALTH_METRICS_EVENTS_GEOGRAPHY_BAR_CLASS = 'bg-blue-600';
