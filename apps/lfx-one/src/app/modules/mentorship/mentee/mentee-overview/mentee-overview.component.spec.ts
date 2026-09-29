@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 import { HttpErrorResponse } from '@angular/common/http';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import {
-  MENTORSHIP_MENTEE_APPLICANT_BANNER_LIMIT_SUFFIX,
-  MENTORSHIP_MENTEE_OVERVIEW_LOAD_ERROR,
-  MENTORSHIP_MENTEE_WITHDRAW_TOAST_SUMMARY,
-} from '@lfx-one/shared/constants';
+import { MENTORSHIP_MENTEE_APPLICANT_BANNER_LIMIT_SUFFIX, MENTORSHIP_MENTEE_OVERVIEW_LOAD_ERROR } from '@lfx-one/shared/constants';
 import { MentorshipMenteeApplication, MentorshipMenteeApplicationsResponse } from '@lfx-one/shared/interfaces';
-import { MentorshipComingSoonService } from '@modules/mentorship/services/mentorship-coming-soon.service';
+import { MenteeApplicationWithdrawService } from '@modules/mentorship/services/mentee-application-withdraw.service';
 import { MentorshipMenteeService } from '@services/mentorship-mentee.service';
+import { ConfirmationService } from 'primeng/api';
 import { menteeServiceTestDouble, menteeTestApplication, menteeTestTask } from '@shared/testing/mentorship-mentee-test-data';
 import { of, Subject, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +19,8 @@ import { MenteeOverviewComponent } from './mentee-overview.component';
 describe('MenteeOverviewComponent', () => {
   let fixture: ComponentFixture<MenteeOverviewComponent>;
   let menteeService: ReturnType<typeof menteeServiceTestDouble>;
-  let comingSoonNotify: ReturnType<typeof vi.fn>;
+  let confirmWithdraw: ReturnType<typeof vi.fn>;
+  let withdrawingId: ReturnType<typeof signal<string | null>>;
   let navigate: ReturnType<typeof vi.fn>;
 
   const element = (): HTMLElement => fixture.nativeElement as HTMLElement;
@@ -45,7 +44,8 @@ describe('MenteeOverviewComponent', () => {
     if (options.pending) {
       menteeService.getMenteeApplications.mockReturnValue(options.pending.asObservable());
     }
-    comingSoonNotify = vi.fn();
+    confirmWithdraw = vi.fn();
+    withdrawingId = signal<string | null>(null);
     navigate = vi.fn();
 
     TestBed.resetTestingModule();
@@ -53,9 +53,17 @@ describe('MenteeOverviewComponent', () => {
       imports: [MenteeOverviewComponent],
       providers: [
         { provide: MentorshipMenteeService, useValue: menteeService },
-        { provide: MentorshipComingSoonService, useValue: { notify: comingSoonNotify } },
         { provide: Router, useValue: { navigate } },
       ],
+    });
+    // The withdraw flow is provided on the component, so its stand-in goes there too.
+    TestBed.overrideComponent(MenteeOverviewComponent, {
+      set: {
+        providers: [
+          ConfirmationService,
+          { provide: MenteeApplicationWithdrawService, useValue: { confirmWithdraw, withdrawingId: withdrawingId.asReadonly() } },
+        ],
+      },
     });
 
     await TestBed.compileComponents();
@@ -197,7 +205,7 @@ describe('MenteeOverviewComponent', () => {
     await bootstrap({ applications: [menteeTestApplication({ id: 'graduated', upstreamStatus: 'graduated' })] });
     expect(allByTestId('mentee-application-card')).toHaveLength(1);
     expect(text(byTestId('mentee-application-card-status'))).toBe('Graduated');
-    expect(byTestId('mentee-overview-withdraw')).toBeNull();
+    expect(byTestId('mentee-overview-withdraw-graduated')).toBeNull();
     expect(byTestId('mentee-overview-past-applications')).toBeNull();
   });
 
@@ -287,17 +295,30 @@ describe('MenteeOverviewComponent', () => {
     expect(navigate).toHaveBeenCalledWith(['/mentorship/mentee/tasks']);
   });
 
-  it('shows the coming-soon toast on Withdraw', async () => {
-    await bootstrap({ applications: [menteeTestApplication()] });
-    (byTestId('mentee-overview-withdraw') as HTMLButtonElement).click();
-    expect(comingSoonNotify).toHaveBeenCalledWith(MENTORSHIP_MENTEE_WITHDRAW_TOAST_SUMMARY);
+  it('asks to confirm the withdraw of the card application', async () => {
+    await bootstrap({ applications: [menteeTestApplication({ id: 'app-pending' })] });
+    (byTestId('mentee-overview-withdraw-app-pending') as HTMLButtonElement).click();
+    expect(confirmWithdraw).toHaveBeenCalledWith('app-pending');
+  });
+
+  it('disables every Withdraw button while a withdraw is in flight', async () => {
+    await bootstrap({ applications: [menteeTestApplication({ id: 'first' }), menteeTestApplication({ id: 'second' })] });
+    withdrawingId.set('first');
+    await settle();
+
+    const first = byTestId('mentee-overview-withdraw-first') as HTMLButtonElement;
+    const second = byTestId('mentee-overview-withdraw-second') as HTMLButtonElement;
+    expect(first.disabled).toBe(true);
+    expect(second.disabled).toBe(true);
+    expect(first.getAttribute('aria-busy')).toBe('true');
+    expect(second.getAttribute('aria-busy')).toBe('false');
   });
 
   it('offers Withdraw only on pending cards, not on the active one', async () => {
     await bootstrap({ applications: [menteeTestApplication({ id: 'accepted', upstreamStatus: 'accepted' }), menteeTestApplication()] });
     const [activeCard, pendingCard] = allByTestId('mentee-application-card');
-    expect(activeCard.querySelector('[data-testid="mentee-overview-withdraw"]')).toBeNull();
-    expect(pendingCard.querySelector('[data-testid="mentee-overview-withdraw"]')).toBeTruthy();
+    expect(activeCard.querySelector('button[data-testid^="mentee-overview-withdraw-"]')).toBeNull();
+    expect(pendingCard.querySelector('button[data-testid^="mentee-overview-withdraw-"]')).toBeTruthy();
   });
 
   // ---- Past applications ----------------------------------------------------

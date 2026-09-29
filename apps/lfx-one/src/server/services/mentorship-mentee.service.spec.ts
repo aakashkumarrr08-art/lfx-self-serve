@@ -164,7 +164,9 @@ describe('MentorshipMenteeService profile reads', () => {
     const result = await service.getMenteeProfile(buildReq());
 
     expect(result.profile).toMatchObject({ aboutMe: 'Test mentee introduction.', skillsHave: ['Go'], skillsWant: ['Code Review'] });
-    expect(result.history).toEqual([{ id: 'app-1', programName: 'Test Program', termName: 'Fall 2026', submittedOn: 'Jun 28, 2026', status: 'pending' }]);
+    expect(result.history).toEqual([
+      { id: 'app-1', programId: 'prog-1', programName: 'Test Program', termName: 'Fall 2026', submittedOn: 'Jun 28, 2026', status: 'pending' },
+    ]);
     expect(proxyRequest).toHaveBeenCalledWith(expect.anything(), 'LFX_V2_SERVICE', PROFILES_PATH, 'GET', { profile_type: 'mentee', limit: 1 }, undefined);
     expect(proxyRequest).toHaveBeenCalledWith(
       expect.anything(),
@@ -373,5 +375,43 @@ describe('MentorshipMenteeService.getMenteeApplications', () => {
     });
 
     await expect(service.getMenteeApplications(buildReq(), true)).rejects.toBe(error);
+  });
+});
+
+describe('MentorshipMenteeService.withdrawMenteeApplication', () => {
+  const applicationId = '6f1c2d3e-4a5b-4c6d-8e7f-9a0b1c2d3e4f';
+  let service: InstanceType<typeof MentorshipMenteeService>;
+  let proxyRequest: MockInstance<InstanceType<typeof MicroserviceProxyService>['proxyRequest']>;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    proxyRequest = vi.spyOn(MicroserviceProxyService.prototype, 'proxyRequest');
+    service = new MentorshipMenteeService();
+  });
+
+  it('posts to the application withdraw route with no body', async () => {
+    proxyRequest.mockResolvedValueOnce(upstreamApplication({ id: applicationId, status: 'withdrawn' }));
+
+    await expect(service.withdrawMenteeApplication(buildReq(), applicationId)).resolves.toBeUndefined();
+    expect(proxyRequest).toHaveBeenCalledTimes(1);
+    expect(proxyRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      'LFX_V2_SERVICE',
+      `${APPLICATIONS_PATH}/${applicationId}/withdraw`,
+      'POST',
+      undefined,
+      undefined
+    );
+  });
+
+  it.each([
+    [409, 'invalid state transition: cannot transition application from "accepted" to "withdrawn"'],
+    [403, 'forbidden'],
+    [404, 'not found'],
+  ])('propagates an upstream %i', async (status, message) => {
+    const error = upstreamError(status, { error: message });
+    proxyRequest.mockRejectedValueOnce(error);
+
+    await expect(service.withdrawMenteeApplication(buildReq(), applicationId)).rejects.toBe(error);
   });
 });
