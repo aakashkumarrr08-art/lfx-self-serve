@@ -3,14 +3,20 @@
 
 import { lfxColors } from './colors.constants';
 
+import type { FilterOption } from '../interfaces/filter.interface';
 import type { HealthMetricsL2CrossReference } from '../interfaces/health-metrics-l2.interface';
 import type {
   HealthMetricsMembersBridge,
   HealthMetricsMembersBridgeStepType,
   HealthMetricsMembersDataSectionKey,
+  HealthMetricsMembersDirectory,
+  HealthMetricsMembersDirectoryTierOption,
+  HealthMetricsMembersEngagementLevel,
   HealthMetricsMembersMovementDrawerCopy,
   HealthMetricsMembersMovementListType,
   HealthMetricsMembersMovements,
+  HealthMetricsMembersNpsCategory,
+  HealthMetricsMembersQueryParams,
   HealthMetricsMembersTiers,
   HealthMetricsMembersTiersModeOption,
 } from '../interfaces/health-metrics-members.interface';
@@ -34,8 +40,9 @@ export const HEALTH_METRICS_MEMBERS_SECTIONS = [
     label: 'All members',
     heading: 'All members',
     description:
-      'The full directory, with the engagement touchpoints alongside membership and dues. Sorted by annual dues, highest first, so the accounts that carry the revenue lead.',
-    footnote: '',
+      "The full directory — PCC's most-used table, carried over with its columns intact and the engagement touchpoints added. Sorted by annual dues, highest first, so the accounts that carry the revenue lead; within a tier, least engaged first.",
+    footnote:
+      'This is the whole table at Level 2, not behind a drill-in — it is the most-used view in PCC, so it stays one click from the tab. PCC\'s Period column is replaced by Renews: the term start is rarely acted on, the end date always is. Contribution, Sponsorship, Training and Events show — where not yet tracked — a data gap reads as "not tracked", never as zero.',
     footnoteCaution: false,
   },
   {
@@ -87,7 +94,7 @@ export const HEALTH_METRICS_MEMBERS_SECTIONS = [
 export const HEALTH_METRICS_MEMBERS_SECTION_ID_PREFIX = 'sec-mem-';
 
 /** Reads a deep link waits for: each section's issue adds its key; `bridge` is the second read in `#tiers`. */
-export const HEALTH_METRICS_MEMBERS_DATA_SECTIONS = ['tiers', 'bridge'] as const satisfies readonly HealthMetricsMembersDataSectionKey[];
+export const HEALTH_METRICS_MEMBERS_DATA_SECTIONS = ['tiers', 'bridge', 'list'] as const satisfies readonly HealthMetricsMembersDataSectionKey[];
 
 /** Note under the sub-nav items, linking to Engagement's group attendance. */
 export const HEALTH_METRICS_MEMBERS_SUB_NAV_CROSS_REFERENCE: HealthMetricsL2CrossReference = {
@@ -185,3 +192,79 @@ export const HEALTH_METRICS_MEMBERS_MOVEMENT_DRAWER_COPY: Record<HealthMetricsMe
     verb: 'moved down',
   },
 };
+
+/** The directory's filter, search and page state in the URL; each key is namespaced to the section. */
+export const HEALTH_METRICS_MEMBERS_QUERY_PARAMS = {
+  directoryTier: 'memTier',
+  directoryNps: 'memNps',
+  directorySearch: 'memSearch',
+  directoryPage: 'memPage',
+} as const satisfies Record<string, keyof HealthMetricsMembersQueryParams>;
+
+/** `MEMBERSHIP_DIRECTORY`'s NPS categories, and the allowlist the directory read validates against. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_NPS_CATEGORIES = ['Promoter', 'Passive', 'Detractor'] as const;
+
+/** `MEMBERSHIP_DIRECTORY`'s own engagement bands; the page never re-bands the score. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_ENGAGEMENT_LEVELS = ['High', 'Medium', 'Low'] as const;
+
+/** The NPS filter; the empty value matches every member, with or without a response. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_NPS_OPTIONS: readonly FilterOption<string>[] = [
+  { label: 'All NPS', value: '' },
+  ...HEALTH_METRICS_MEMBERS_DIRECTORY_NPS_CATEGORIES.map((category) => ({ label: category, value: category })),
+];
+
+/** The tier filter's match-all option; the tiers themselves come from the read. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_ALL_TIERS_OPTION: FilterOption<string> = { label: 'All tiers', value: '' };
+
+/** Shown, unselectable, under "All tiers" when the tier read failed, so the short list is not mistaken for none. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_TIERS_UNAVAILABLE_OPTION: HealthMetricsMembersDirectoryTierOption = {
+  label: 'Tier list unavailable',
+  value: '__tiers_unavailable__',
+  disabled: true,
+};
+
+/** Read-failed / no-foundation value: no members, so the section renders no rows. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_UNMEASURED: HealthMetricsMembersDirectory = {
+  rows: [],
+  totalRecords: 0,
+  scopeTotal: 0,
+  atRiskCount: 0,
+};
+
+/** Rows per page, and the design's rows-per-page choices; the largest foundation has several hundred members. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_PAGE_SIZE = 10;
+
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 25, 50];
+
+/** Largest page a caller may ask for. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_MAX_PAGE_SIZE = 100;
+
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_MAX_SEARCH_LENGTH = 100;
+
+/** Longest tier name the filter accepts; the view's column is far wider than any real tier. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_MAX_TIER_LENGTH = 200;
+
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_SEARCH_DEBOUNCE_MS = 200;
+
+/** Upper bound on the tier options read; a foundation has a handful. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_TIER_OPTION_CAP = 100;
+
+/** One pill style for every tier, as the design draws it. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_TIER_PILL_CLASS = 'bg-blue-50 text-blue-700';
+
+/** NPS chips after the member's name. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_NPS_CHIP_CLASSES: Record<HealthMetricsMembersNpsCategory, string> = {
+  Promoter: 'bg-emerald-50 text-emerald-700',
+  Passive: 'bg-gray-100 text-gray-500',
+  Detractor: 'bg-red-50 text-red-700',
+};
+
+/** Engagement band dots. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_ENGAGEMENT_DOT_CLASSES: Record<HealthMetricsMembersEngagementLevel, string> = {
+  High: 'bg-emerald-600',
+  Medium: 'bg-amber-600',
+  Low: 'bg-red-600',
+};
+
+/** Hover text on a not-tracked cell. */
+export const HEALTH_METRICS_MEMBERS_DIRECTORY_NOT_TRACKED = 'Not tracked yet for this foundation';

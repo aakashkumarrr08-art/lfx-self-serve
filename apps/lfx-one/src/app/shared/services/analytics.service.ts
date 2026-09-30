@@ -113,6 +113,9 @@ import {
   HealthMetricsEventsSponsorshipQuery,
   HealthMetricsMembersBridge,
   HealthMetricsMembersBridgeQuery,
+  HealthMetricsMembersDirectory,
+  HealthMetricsMembersDirectoryQuery,
+  HealthMetricsMembersDirectoryTiers,
   HealthMetricsMembersMovements,
   HealthMetricsMembersMovementsQuery,
   HealthMetricsMembersTiers,
@@ -1393,6 +1396,37 @@ export class AnalyticsService {
     return this.http.get<HealthMetricsMembersMovements>('/api/analytics/members-movements', { params }).pipe(
       catchError((error) => {
         console.error('[analytics] members-movements failed', { query, error });
+        return throwError(() => error);
+      })
+    );
+  }
+
+  public getMembersDirectory(query: HealthMetricsMembersDirectoryQuery): Observable<HealthMetricsMembersDirectory> {
+    // Strict encoding keeps a typed `+` from reaching Express as a space.
+    let params = strictHttpParams()
+      .set('foundationSlug', query.foundationSlug)
+      .set('range', query.range)
+      .set('offset', String(query.offset))
+      .set('pageSize', String(query.pageSize));
+    if (query.tier) params = params.set('tier', query.tier);
+    if (query.nps) params = params.set('nps', query.nps);
+    if (query.search) params = params.set('search', query.search);
+
+    // Errors propagate so the section shows its error state. Only the status is logged: the error's url carries the search.
+    return this.http.get<HealthMetricsMembersDirectory>('/api/analytics/members-directory', { params }).pipe(
+      catchError((error: unknown) => {
+        const status = error instanceof HttpErrorResponse ? error.status : undefined;
+        console.error('[analytics] members-directory failed', { foundationSlug: query.foundationSlug, range: query.range, nps: query.nps, status });
+        return throwError(() => error);
+      })
+    );
+  }
+
+  public getMembersDirectoryTiers(foundationSlug: string): Observable<HealthMetricsMembersDirectoryTiers> {
+    // Errors propagate so the component can tell a failed read from a foundation with no tiers.
+    return this.http.get<HealthMetricsMembersDirectoryTiers>('/api/analytics/members-directory-tiers', { params: { foundationSlug } }).pipe(
+      catchError((error) => {
+        console.error('[analytics] members-directory-tiers failed', { foundationSlug, error });
         return throwError(() => error);
       })
     );
