@@ -1,6 +1,8 @@
 // Copyright The Linux Foundation and each contributor to LFX.
 // SPDX-License-Identifier: MIT
 
+import type { MENTORSHIP_MENTEE_DEMOGRAPHIC_GROUPS } from '../constants/mentorship-mentee.constants';
+
 // ---------------------------------------------------------------------------
 // Become a Mentee form types
 // ---------------------------------------------------------------------------
@@ -278,6 +280,56 @@ export interface MentorshipMenteeProfileResponse {
   demographics?: MentorshipMenteeDemographics;
 }
 
+/** Skills group of a profile update. Sent whole: upstream replaces the whole `skill_set` column. */
+export interface MentorshipMenteeSkillSetUpdate {
+  skillsHave: string[];
+  skillsWant: string[];
+  /** Blank or omitted means no notes (the upstream key is left out, which clears them). */
+  additionalNotes?: string;
+}
+
+/** Age, gender and race answers. Sent whole when any row changed; an omitted row has no stored answer. */
+export interface MentorshipMenteeDemographicsGroupUpdate {
+  age?: string;
+  gender?: string;
+  raceEthnicity?: string;
+}
+
+/** Income and education answers. Sent whole when any row changed; an omitted row has no stored answer. */
+export interface MentorshipMenteeSocioeconomicsGroupUpdate {
+  income?: string;
+  education?: string;
+}
+
+/** Body of `PATCH /api/mentorship/mentee/profile`. Only changed groups are present; at least one is required. */
+export interface MentorshipMenteeProfileUpdateRequest {
+  /** PLAIN TEXT. The BFF converts it to HTML. `''` clears the introduction. Omitted means unchanged. */
+  introduction?: string;
+  skillSet?: MentorshipMenteeSkillSetUpdate;
+  demographics?: MentorshipMenteeDemographicsGroupUpdate;
+  socioeconomics?: MentorshipMenteeSocioeconomicsGroupUpdate;
+}
+
+/** 200 body of `PATCH /api/mentorship/mentee/profile`: the saved profile, re-mapped. History is not returned. */
+export interface MentorshipMenteeProfileUpdateResponse {
+  profile: MentorshipMenteeProfileDetails;
+  demographics?: MentorshipMenteeDemographics;
+}
+
+/** Values the profile edit drawer hands the diff builder (`form.getRawValue()` is assignable). */
+export interface MentorshipMenteeProfileFormValue {
+  introduction: string;
+  skillsHave: string[];
+  skillsWant: string[];
+  additionalNotes: string;
+}
+
+/** `form.getRawValue()` of the demographics drawer: `${key}Consent` booleans and `${key}` answers per `MENTORSHIP_MENTEE_DEMOGRAPHIC_ROWS`. */
+export type MentorshipMenteeDemographicsFormValue = Record<string, string | boolean>;
+
+/** A demographics column the profile update writes: a key of `MENTORSHIP_MENTEE_DEMOGRAPHIC_GROUPS`. */
+export type MentorshipMenteeDemographicGroupName = keyof typeof MENTORSHIP_MENTEE_DEMOGRAPHIC_GROUPS;
+
 /** Both ids required to open `/mentorship/mentee/apply` and to return there after registration. */
 export interface MentorshipMenteeApplyIds {
   programId: string;
@@ -536,4 +588,42 @@ export interface MentorshipUpstreamUserProfile {
   profile_links?: unknown;
   created_on: string;
   updated_on: string;
+}
+
+/**
+ * The `skill_set` column as the mentee profile update writes it. The index signature carries stored keys
+ * the BFF does not model, which the update keeps because upstream replaces the column whole.
+ */
+export interface MentorshipUpstreamMenteeSkillSet {
+  skills: string[];
+  improvementSkills: string[];
+  comments?: string;
+  [key: string]: unknown;
+}
+
+/** The `demographics` column as the mentee profile update writes it, with any stored keys the BFF does not model. */
+export interface MentorshipUpstreamMenteeDemographics {
+  age?: string;
+  gender?: string;
+  race?: string;
+  [key: string]: unknown;
+}
+
+/** The `socioeconomics` column as the mentee profile update writes it, with any stored keys the BFF does not model. */
+export interface MentorshipUpstreamMenteeSocioeconomics {
+  income?: string;
+  educationLevel?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Body of `PATCH /mentorship/v1/me/profiles/mentee`. Every key is optional and an omitted key keeps
+ * the stored value; a present JSON column replaces the stored one whole. Never `{}` or `null`.
+ */
+export interface MentorshipUpstreamMenteeProfileUpdate {
+  /** HTML built by the BFF. `''` clears. */
+  introduction?: string;
+  skill_set?: MentorshipUpstreamMenteeSkillSet;
+  demographics?: MentorshipUpstreamMenteeDemographics;
+  socioeconomics?: MentorshipUpstreamMenteeSocioeconomics;
 }
