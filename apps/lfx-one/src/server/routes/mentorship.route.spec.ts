@@ -102,6 +102,15 @@ describe('mentorship router — mentee endpoints (GH-2755)', () => {
     expect(res.status).toBe(403);
   });
 
+  it('routes POST /api/mentorship/mentee/profile (auth required, not 404)', async () => {
+    const res = await fetch(`${baseUrl}/api/mentorship/mentee/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(401);
+  });
   it('routes PATCH /api/mentorship/mentee/tasks/:taskId (auth required, not 404)', async () => {
     const res = await fetch(`${baseUrl}/api/mentorship/mentee/tasks/7a9b1c3d-5e6f-4a8b-9c0d-1e2f3a4b5c6d`, {
       method: 'PATCH',
@@ -112,6 +121,15 @@ describe('mentorship router — mentee endpoints (GH-2755)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('refuses a mentee registration while impersonating, before the controller runs', async () => {
+    const res = await fetch(`${baseUrl}/api/mentorship/mentee/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-test-impersonating': 'true' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(403);
+  });
+  // 403 rather than the controller's 401 shows the guard ran first.
   it('refuses a task status change while impersonating, before the controller runs', async () => {
     const res = await fetch(`${baseUrl}/api/mentorship/mentee/tasks/7a9b1c3d-5e6f-4a8b-9c0d-1e2f3a4b5c6d`, {
       method: 'PATCH',
