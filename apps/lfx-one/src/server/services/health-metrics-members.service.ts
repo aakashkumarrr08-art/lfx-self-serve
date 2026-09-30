@@ -4,6 +4,9 @@
 import {
   HEALTH_METRICS_L2_RANGE_COLUMN_SUFFIX,
   HEALTH_METRICS_L2_RANGES,
+  HEALTH_METRICS_MEMBERS_AT_RISK_BUCKETS,
+  HEALTH_METRICS_MEMBERS_AT_RISK_MAX_PAGE_SIZE,
+  HEALTH_METRICS_MEMBERS_AT_RISK_PAGE_SIZE,
   HEALTH_METRICS_MEMBERS_BRIDGE_ROW_CAP,
   HEALTH_METRICS_MEMBERS_BRIDGE_STEP_TYPES,
   HEALTH_METRICS_MEMBERS_DIRECTORY_ENGAGEMENT_LEVELS,
@@ -26,6 +29,10 @@ import { SnowflakeService } from './snowflake.service';
 
 import type {
   HealthMetricsL2Range,
+  HealthMetricsMembersAtRisk,
+  HealthMetricsMembersAtRiskBucket,
+  HealthMetricsMembersAtRiskMember,
+  HealthMetricsMembersAtRiskQuery,
   HealthMetricsMembersBridge,
   HealthMetricsMembersBridgeQuery,
   HealthMetricsMembersBridgeStep,
@@ -52,6 +59,7 @@ const OVERVIEW_REVENUE_VIEW = 'ANALYTICS.PLATINUM_LFX_ONE.HEALTH_OVERVIEW_REVENU
 const MEMBERSHIP_WATERFALL_VIEW = 'ANALYTICS.PLATINUM_LFX_ONE.MEMBERSHIP_WATERFALL';
 const MEMBERSHIP_MOVEMENT_DETAIL_VIEW = 'ANALYTICS.PLATINUM_LFX_ONE.MEMBERSHIP_MOVEMENT_DETAIL';
 const MEMBERSHIP_DIRECTORY_VIEW = 'ANALYTICS.PLATINUM_LFX_ONE.MEMBERSHIP_DIRECTORY';
+const MEMBERSHIP_AT_RISK_VIEW = 'ANALYTICS.PLATINUM_LFX_ONE.MEMBERSHIP_AT_RISK';
 
 const BRIDGE_STEP_TYPES: ReadonlySet<string> = new Set<HealthMetricsMembersBridgeStepType>(HEALTH_METRICS_MEMBERS_BRIDGE_STEP_TYPES);
 const NPS_CATEGORIES: ReadonlySet<string> = new Set<HealthMetricsMembersNpsCategory>(HEALTH_METRICS_MEMBERS_DIRECTORY_NPS_CATEGORIES);
@@ -111,6 +119,24 @@ interface DirectoryRow {
   SPONSORSHIP_USD: number | null;
   TRAINING_ENROLLMENT_COUNT: number | null;
   EVENT_REGISTRATION_COUNT: number | null;
+}
+
+/** The model's per-bucket totals, one pair per `HEALTH_METRICS_MEMBERS_AT_RISK_BUCKETS` entry. */
+type AtRiskBucketTotals = Record<`FOUNDATION_${Uppercase<HealthMetricsMembersAtRiskBucket>}_${'MEMBERS_COUNT' | 'OUTSTANDING_BALANCE_USD'}`, number | null>;
+
+interface AtRiskRow extends AtRiskBucketTotals {
+  TOTAL_RECORDS: number | null;
+  SCOPED_RECORDS: number | null;
+  FOUNDATION_HIGH_RISK_BALANCE_USD: number | null;
+  FOUNDATION_MEDIUM_RISK_BALANCE_USD: number | null;
+  IS_PAGE_ROW: boolean | null;
+  ACCOUNT_ID: string | null;
+  ACCOUNT_NAME: string | null;
+  MEMBERSHIP_TIER: string | null;
+  OUTSTANDING_BALANCE_USD: number | null;
+  DAYS_OVERDUE: number | null;
+  LAST_ENGAGED_DATE: Date | string | null;
+  SORT_RANK: number | null;
 }
 
 interface DirectoryTierRow {
@@ -352,6 +378,104 @@ export class HealthMetricsMembersService {
     return { tiers: result.rows.flatMap((row) => (row.MEMBERSHIP_TIER ? [row.MEMBERSHIP_TIER] : [])) };
   }
 
+  /**
+   * One page of the foundation's members whose balance is 60+ days overdue, in the view's `sort_rank`
+   * order, with the hero and aging totals over every such member whatever the bucket filter.
+   */
+  public async getAtRisk(req: Request, query: HealthMetricsMembersAtRiskQuery): Promise<HealthMetricsMembersAtRisk> {
+    const binds: string[] = [query.foundationSlug, ...HEALTH_METRICS_MEMBERS_AT_RISK_BUCKETS];
+    let matchClause = '';
+    if (query.bucket !== 'all') {
+      matchClause = 'WHERE aging_bucket = ?';
+      binds.push(query.bucket);
+    }
+
+    const pageSize = clampInteger(query.pageSize, 1, HEALTH_METRICS_MEMBERS_AT_RISK_MAX_PAGE_SIZE, HEALTH_METRICS_MEMBERS_AT_RISK_PAGE_SIZE);
+    const offset = clampInteger(query.offset, 0, MAX_SNOWFLAKE_PAGINATION_PAGE * pageSize, 0);
+    const bucketPlaceholders = HEALTH_METRICS_MEMBERS_AT_RISK_BUCKETS.map(() => '?').join(', ');
+    // The model repeats its foundation totals on every row, so any one row carries them; bucket ids are constants.
+    const bucketColumns = HEALTH_METRICS_MEMBERS_AT_RISK_BUCKETS.flatMap((bucket) => [
+      `foundation_${bucket}_members_count`,
+      `foundation_${bucket}_outstanding_balance_usd`,
+    ]);
+
+    const sql = `
+      WITH scoped AS (
+        SELECT
+          account_id,
+          account_name,
+          NULLIF(TRIM(membership_tier), '') AS membership_tier,
+          outstanding_balance_usd,
+          days_overdue,
+          aging_bucket,
+          last_engaged_date,
+          sort_rank,
+          foundation_high_risk_balance_usd,
+          foundation_medium_risk_balance_usd,
+          ${bucketColumns.join(',\n          ')}
+        FROM ${MEMBERSHIP_AT_RISK_VIEW}
+        WHERE foundation_slug = ?
+          AND account_id IS NOT NULL
+          AND account_id <> ''
+          -- Balances under 60 days are not yet at risk, so they stay out of the hero, the aging and the table.
+          AND aging_bucket IN (${bucketPlaceholders})
+      ),
+      matched AS (
+        SELECT * FROM scoped ${matchClause}
+      ),
+      totals AS (
+        SELECT
+          (SELECT COUNT(*) FROM matched) AS total_records,
+          COUNT(*) AS scoped_records,
+          ANY_VALUE(foundation_high_risk_balance_usd) AS foundation_high_risk_balance_usd,
+          ANY_VALUE(foundation_medium_risk_balance_usd) AS foundation_medium_risk_balance_usd,
+          ${bucketColumns.map((column) => `ANY_VALUE(${column}) AS ${column}`).join(',\n          ')}
+        FROM scoped
+      ),
+      page AS (
+        SELECT account_id, account_name, membership_tier, outstanding_balance_usd, days_overdue, last_engaged_date, sort_rank, TRUE AS is_page_row
+        FROM matched
+        ORDER BY sort_rank ASC NULLS LAST, account_id ASC
+        LIMIT ${pageSize} OFFSET ${offset}
+      )
+      -- ON TRUE keeps the single totals row when the page selected nothing.
+      SELECT totals.*, page.*
+      FROM totals
+      LEFT JOIN page ON TRUE
+      ORDER BY page.sort_rank ASC NULLS LAST, page.account_id ASC
+    `;
+
+    const result = await executeSnowflakeViewRead<AtRiskRow>(this.snowflakeService, req, sql, binds, {
+      view: MEMBERSHIP_AT_RISK_VIEW,
+      operation: 'get_members_at_risk',
+      clientMessage: 'At-risk members are unavailable right now.',
+    });
+
+    const first = result.rows[0];
+    // No member 60+ days overdue is a measured zero; an unset total on a foundation with some stays null.
+    const total = (value: number | null | undefined): number | null => (Number(first?.SCOPED_RECORDS ?? 0) > 0 ? toNullableNumber(value) : 0);
+    const aging = HEALTH_METRICS_MEMBERS_AT_RISK_BUCKETS.map((bucket) => {
+      const column = bucket.toUpperCase() as Uppercase<HealthMetricsMembersAtRiskBucket>;
+      return {
+        bucket,
+        memberCount: total(first?.[`FOUNDATION_${column}_MEMBERS_COUNT`]),
+        balanceUsd: total(first?.[`FOUNDATION_${column}_OUTSTANDING_BALANCE_USD`]),
+      };
+    });
+    return {
+      rows: result.rows.filter((row) => row.IS_PAGE_ROW === true).flatMap(mapAtRiskMember),
+      totalRecords: Number(first?.TOTAL_RECORDS ?? 0),
+      // The model's foundation-wide total counts balances under 60 days too, so the hero adds up the buckets shown.
+      summary: {
+        outstandingBalanceUsd: sumMeasured(aging.map((bucket) => bucket.balanceUsd)),
+        highRiskBalanceUsd: total(first?.FOUNDATION_HIGH_RISK_BALANCE_USD),
+        mediumRiskBalanceUsd: total(first?.FOUNDATION_MEDIUM_RISK_BALANCE_USD),
+        memberCount: sumMeasured(aging.map((bucket) => bucket.memberCount)),
+      },
+      aging,
+    };
+  }
+
   private async getTierYears(req: Request, query: HealthMetricsMembersTiersQuery): Promise<HealthMetricsMembersTierYear[]> {
     const sql = `
       SELECT
@@ -504,6 +628,26 @@ function mapDirectoryMember(row: DirectoryRow): HealthMetricsMembersDirectoryMem
   ];
 }
 
+function mapAtRiskMember(row: AtRiskRow): HealthMetricsMembersAtRiskMember[] {
+  if (!row.ACCOUNT_ID) return [];
+
+  return [
+    {
+      accountId: row.ACCOUNT_ID,
+      accountName: row.ACCOUNT_NAME || row.ACCOUNT_ID,
+      membershipTier: row.MEMBERSHIP_TIER || null,
+      outstandingBalanceUsd: toNullableNumber(row.OUTSTANDING_BALANCE_USD),
+      daysOverdue: toNullableNumber(row.DAYS_OVERDUE),
+      lastEngagedDate: toIsoDate(row.LAST_ENGAGED_DATE),
+    },
+  ];
+}
+
 function toNullableNumber(value: unknown): number | null {
   return value === null || value === undefined ? null : Number(value);
+}
+
+/** A sum with any unset part is itself unset, so a partial total never reads as the whole. */
+function sumMeasured(values: (number | null)[]): number | null {
+  return values.some((value) => value === null) ? null : values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }

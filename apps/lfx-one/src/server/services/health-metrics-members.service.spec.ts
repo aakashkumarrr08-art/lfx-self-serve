@@ -21,6 +21,7 @@ vi.mock('@lfx-one/shared/utils', () => ({}));
 
 import {
   HEALTH_METRICS_L2_RANGES,
+  HEALTH_METRICS_MEMBERS_AT_RISK_MAX_PAGE_SIZE,
   HEALTH_METRICS_MEMBERS_BRIDGE_ROW_CAP,
   HEALTH_METRICS_MEMBERS_DIRECTORY_MAX_PAGE_SIZE,
   HEALTH_METRICS_MEMBERS_DIRECTORY_TIER_OPTION_CAP,
@@ -532,5 +533,154 @@ describe('HealthMetricsMembersService.getDirectoryTiers', () => {
     execute.mockRejectedValue(failure);
 
     await expect(new HealthMetricsMembersService().getDirectoryTiers(req, { foundationSlug: 'acme' })).rejects.toBe(failure);
+  });
+});
+
+describe('HealthMetricsMembersService.getAtRisk', () => {
+  const query = { foundationSlug: 'acme', bucket: 'all' as const, offset: 0, pageSize: 10 };
+  const totals = {
+    TOTAL_RECORDS: 3,
+    SCOPED_RECORDS: 3,
+    FOUNDATION_HIGH_RISK_BALANCE_USD: 90000,
+    FOUNDATION_MEDIUM_RISK_BALANCE_USD: 30000,
+    FOUNDATION_60_89_DAYS_MEMBERS_COUNT: 2,
+    FOUNDATION_60_89_DAYS_OUTSTANDING_BALANCE_USD: 50000,
+    FOUNDATION_90_PLUS_DAYS_MEMBERS_COUNT: 1,
+    FOUNDATION_90_PLUS_DAYS_OUTSTANDING_BALANCE_USD: 70000,
+  };
+
+  function atRiskRow(overrides: Record<string, unknown> = {}) {
+    return {
+      ...totals,
+      IS_PAGE_ROW: true,
+      ACCOUNT_ID: '0014100000AcmeRsk1',
+      ACCOUNT_NAME: 'Acme Robotics',
+      MEMBERSHIP_TIER: 'Gold Membership',
+      OUTSTANDING_BALANCE_USD: 70000,
+      DAYS_OVERDUE: 104,
+      LAST_ENGAGED_DATE: new Date(Date.UTC(2026, 2, 4)),
+      SORT_RANK: 1,
+      ...overrides,
+    };
+  }
+
+  function atRiskRead(): [string, unknown[]] {
+    return execute.mock.calls[0] as [string, unknown[]];
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    execute.mockResolvedValue({ rows: [atRiskRow()] });
+  });
+
+  it('scopes to balances 60+ days overdue and binds no bucket filter for all', async () => {
+    await new HealthMetricsMembersService().getAtRisk(req, query);
+
+    const [sql, binds] = atRiskRead();
+    expect(binds).toEqual(['acme', '60_89_days', '90_plus_days']);
+    expect(sql.match(/\?/g)).toHaveLength(binds.length);
+    expect(sql).toContain('FROM ANALYTICS.PLATINUM_LFX_ONE.MEMBERSHIP_AT_RISK');
+    const scoped = sql.slice(sql.indexOf('WITH scoped AS'), sql.indexOf('matched AS'));
+    expect(scoped).toContain("AND account_id <> ''");
+    expect(scoped).toContain('AND aging_bucket IN (?, ?)');
+    expect(sql).not.toMatch(/FROM scoped WHERE/);
+  });
+
+  it("filters the page and its count to one bucket, but reads the hero and aging from the model's totals", async () => {
+    await new HealthMetricsMembersService().getAtRisk(req, { ...query, bucket: '90_plus_days' });
+
+    const [sql, binds] = atRiskRead();
+    expect(binds).toEqual(['acme', '60_89_days', '90_plus_days', '90_plus_days']);
+    expect(sql.match(/\?/g)).toHaveLength(binds.length);
+    expect(sql).toContain('SELECT * FROM scoped WHERE aging_bucket = ?');
+    expect(sql).toContain('(SELECT COUNT(*) FROM matched) AS total_records');
+    const totalsCte = sql.slice(sql.indexOf('totals AS'), sql.indexOf('page AS'));
+    expect(totalsCte).toContain('ANY_VALUE(foundation_high_risk_balance_usd) AS foundation_high_risk_balance_usd');
+    expect(totalsCte).toContain('ANY_VALUE(foundation_60_89_days_members_count) AS foundation_60_89_days_members_count');
+    expect(totalsCte).toContain('ANY_VALUE(foundation_90_plus_days_outstanding_balance_usd) AS foundation_90_plus_days_outstanding_balance_usd');
+    expect(totalsCte).toContain('COUNT(*) AS scoped_records');
+    expect(totalsCte).toContain('FROM scoped');
+    expect(totalsCte).not.toMatch(/SUM\(|COUNT_IF\(/);
+  });
+
+  it("pages in the view's sort_rank order and clamps an oversized page and offset", async () => {
+    await new HealthMetricsMembersService().getAtRisk(req, { ...query, pageSize: 10_000, offset: Number.MAX_SAFE_INTEGER });
+
+    const [sql] = atRiskRead();
+    const size = HEALTH_METRICS_MEMBERS_AT_RISK_MAX_PAGE_SIZE;
+    expect(sql).toContain(`ORDER BY sort_rank ASC NULLS LAST, account_id ASC\n        LIMIT ${size} OFFSET ${MAX_SNOWFLAKE_PAGINATION_PAGE * size}`);
+    expect(sql).toContain('LEFT JOIN page ON TRUE');
+  });
+
+  it('maps the totals, adding the hero up from the buckets shown, and a member with an ISO date', async () => {
+    const response = await new HealthMetricsMembersService().getAtRisk(req, query);
+
+    expect(response).toEqual({
+      totalRecords: 3,
+      summary: { outstandingBalanceUsd: 120000, highRiskBalanceUsd: 90000, mediumRiskBalanceUsd: 30000, memberCount: 3 },
+      aging: [
+        { bucket: '60_89_days', memberCount: 2, balanceUsd: 50000 },
+        { bucket: '90_plus_days', memberCount: 1, balanceUsd: 70000 },
+      ],
+      rows: [
+        {
+          accountId: '0014100000AcmeRsk1',
+          accountName: 'Acme Robotics',
+          membershipTier: 'Gold Membership',
+          outstandingBalanceUsd: 70000,
+          daysOverdue: 104,
+          lastEngagedDate: '2026-03-04',
+        },
+      ],
+    });
+  });
+
+  it('keeps the totals when the page is past the end, and a blank name falls back to the id', async () => {
+    execute.mockResolvedValue({ rows: [{ ...totals, IS_PAGE_ROW: null, ACCOUNT_ID: null }] });
+    expect(await new HealthMetricsMembersService().getAtRisk(req, query)).toMatchObject({ rows: [], totalRecords: 3 });
+
+    execute.mockResolvedValue({ rows: [atRiskRow({ ACCOUNT_NAME: '', MEMBERSHIP_TIER: '', LAST_ENGAGED_DATE: null })] });
+    expect((await new HealthMetricsMembersService().getAtRisk(req, query)).rows[0]).toMatchObject({
+      accountName: '0014100000AcmeRsk1',
+      membershipTier: null,
+      lastEngagedDate: null,
+    });
+  });
+
+  it('reads measured zeros when the foundation has no member at risk', async () => {
+    const empty = { TOTAL_RECORDS: 0, SCOPED_RECORDS: 0, IS_PAGE_ROW: null, ACCOUNT_ID: null };
+    for (const rows of [[], [empty]]) {
+      execute.mockResolvedValue({ rows });
+
+      expect(await new HealthMetricsMembersService().getAtRisk(req, query)).toMatchObject({
+        rows: [],
+        totalRecords: 0,
+        summary: { outstandingBalanceUsd: 0, highRiskBalanceUsd: 0, mediumRiskBalanceUsd: 0, memberCount: 0 },
+        aging: [
+          { bucket: '60_89_days', memberCount: 0, balanceUsd: 0 },
+          { bucket: '90_plus_days', memberCount: 0, balanceUsd: 0 },
+        ],
+      });
+    }
+  });
+
+  // An unset model total is not a zero: the hero sum and the bar it feeds stay unset.
+  it('keeps an unset model total null for a foundation with members at risk', async () => {
+    execute.mockResolvedValue({ rows: [atRiskRow({ FOUNDATION_90_PLUS_DAYS_OUTSTANDING_BALANCE_USD: null, FOUNDATION_HIGH_RISK_BALANCE_USD: null })] });
+
+    expect(await new HealthMetricsMembersService().getAtRisk(req, query)).toMatchObject({
+      summary: { outstandingBalanceUsd: null, highRiskBalanceUsd: null, mediumRiskBalanceUsd: 30000, memberCount: 3 },
+      aging: [
+        { bucket: '60_89_days', memberCount: 2, balanceUsd: 50000 },
+        { bucket: '90_plus_days', memberCount: 1, balanceUsd: null },
+      ],
+    });
+  });
+
+  it('rethrows a failed read', async () => {
+    const failure = new Error('warehouse down');
+    execute.mockRejectedValue(failure);
+
+    await expect(new HealthMetricsMembersService().getAtRisk(req, query)).rejects.toBe(failure);
   });
 });

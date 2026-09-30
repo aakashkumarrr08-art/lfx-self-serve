@@ -3,6 +3,7 @@
 
 import { getYearForRange } from '../constants/dashboard-metrics.constants';
 import {
+  HEALTH_METRICS_MEMBERS_AT_RISK_BUCKET_LABELS,
   HEALTH_METRICS_MEMBERS_BRIDGE_STEP_LABELS,
   HEALTH_METRICS_MEMBERS_DIRECTORY_ENGAGEMENT_DOT_CLASSES,
   HEALTH_METRICS_MEMBERS_DIRECTORY_NPS_CHIP_CLASSES,
@@ -17,6 +18,12 @@ import { formatCurrency } from './number.utils';
 
 import type { HealthMetricsRange } from '../interfaces/dashboard-metric.interface';
 import type {
+  HealthMetricsMembersAtRiskAging,
+  HealthMetricsMembersAtRiskAgingView,
+  HealthMetricsMembersAtRiskMember,
+  HealthMetricsMembersAtRiskRowView,
+  HealthMetricsMembersAtRiskSummary,
+  HealthMetricsMembersAtRiskSummaryView,
   HealthMetricsMembersBridge,
   HealthMetricsMembersBridgeBarView,
   HealthMetricsMembersBridgeStep,
@@ -40,11 +47,17 @@ import type {
   HealthMetricsMembersTierYear,
 } from '../interfaces/health-metrics-members.interface';
 
-/** Sub-nav items for the Members tab; a section badges only once it reports a count. */
+/** Sub-nav items for the Members tab; a section badges only once it reports a count, and notes only once it reports a note. */
 export function buildHealthMetricsMembersSubNavItems(
-  counts: Partial<Record<HealthMetricsMembersSectionKey, number | null>> = {}
+  counts: Partial<Record<HealthMetricsMembersSectionKey, number | null>> = {},
+  notes: Partial<Record<HealthMetricsMembersSectionKey, string>> = {}
 ): HealthMetricsMembersSubNavItem[] {
-  return HEALTH_METRICS_MEMBERS_SECTIONS.map((section) => ({ key: section.key, label: section.label, count: counts[section.key] ?? null, note: '' }));
+  return HEALTH_METRICS_MEMBERS_SECTIONS.map((section) => ({
+    key: section.key,
+    label: section.label,
+    count: counts[section.key] ?? null,
+    note: notes[section.key] ?? '',
+  }));
 }
 
 /**
@@ -219,6 +232,51 @@ export function buildHealthMetricsMembersDirectorySummary(scopeTotal: number, at
 /** The search box placeholder, sized to the whole foundation. */
 export function buildHealthMetricsMembersDirectorySearchPlaceholder(scopeTotal: number): string {
   return `Search ${pluralize(scopeTotal, 'member')}…`;
+}
+
+/** The at-risk hero: the outstanding balance, its High / Medium split, and the member count; an unset total is a dash. */
+export function buildHealthMetricsMembersAtRiskSummary(summary: HealthMetricsMembersAtRiskSummary): HealthMetricsMembersAtRiskSummaryView {
+  return {
+    outstandingLabel: formatUsd(summary.outstandingBalanceUsd),
+    highRiskLabel: formatUsd(summary.highRiskBalanceUsd),
+    mediumRiskLabel: formatUsd(summary.mediumRiskBalanceUsd),
+    memberCountLabel: formatCount(summary.memberCount),
+  };
+}
+
+/** Aging bars, each sized against the largest bucket balance; a bucket with no members is left out, an unset one kept. */
+export function buildHealthMetricsMembersAtRiskAging(aging: HealthMetricsMembersAtRiskAging[]): HealthMetricsMembersAtRiskAgingView[] {
+  const shown = aging.filter((bucket) => bucket.memberCount === null || bucket.memberCount > 0);
+  const max = Math.max(0, ...shown.map((bucket) => bucket.balanceUsd ?? 0));
+  return shown.map((bucket) => ({
+    bucket: bucket.bucket,
+    label: `${HEALTH_METRICS_MEMBERS_AT_RISK_BUCKET_LABELS[bucket.bucket]} · ${bucket.memberCount === null ? '—' : pluralize(bucket.memberCount, 'member')}`,
+    balanceLabel: formatUsd(bucket.balanceUsd),
+    widthPct: max > 0 && bucket.balanceUsd !== null ? Math.min(100, Math.max(0, (bucket.balanceUsd / max) * 100)) : 0,
+  }));
+}
+
+/** At-risk rows; a missing tier, balance, age or engagement date renders as a dash. */
+export function buildHealthMetricsMembersAtRiskRows(rows: HealthMetricsMembersAtRiskMember[]): HealthMetricsMembersAtRiskRowView[] {
+  return rows.map((row) => ({
+    accountId: row.accountId,
+    accountName: row.accountName,
+    tierLabel: row.membershipTier ?? '—',
+    overdueLabel: formatUsd(row.outstandingBalanceUsd),
+    ageLabel: row.daysOverdue === null ? '—' : pluralize(Math.round(row.daysOverdue), 'day'),
+    lastEngagedLabel: formatIsoDate(row.lastEngagedDate),
+  }));
+}
+
+/** The sub-nav note, "12 overdue · $480K"; empty while no member is at risk or either total is unset. */
+export function buildHealthMetricsMembersAtRiskNote(summary: HealthMetricsMembersAtRiskSummary): string {
+  if (summary.memberCount === null || summary.memberCount <= 0 || summary.outstandingBalanceUsd === null) return '';
+  return `${summary.memberCount.toLocaleString('en-US')} overdue · ${formatCurrency(summary.outstandingBalanceUsd)}`;
+}
+
+/** The "N members" line beside the bucket pills. */
+export function buildHealthMetricsMembersAtRiskCountLabel(totalRecords: number): string {
+  return pluralize(totalRecords, 'member');
 }
 
 function activityCell(key: string, value: number | null, format: (value: number | null) => string): HealthMetricsMembersDirectoryCellView {
